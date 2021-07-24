@@ -1,0 +1,152 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tailscale-cni-cfg
+  namespace: kube-system
+  labels:
+    tier: node
+    k8s-app: tailscale-cni
+data:
+  cni-conf.json: |
+    {
+       "cniVersion":"0.3.0",
+       "name":"mynet",
+       "plugins":[
+          {
+             "name":"kubernetes",
+             "type":"bridge",
+             "bridge":"kube-bridge",
+             "isDefaultGateway":true,
+             "ipam":{
+                "type":"host-local"
+             }
+          },
+          {
+             "type":"portmap",
+             "capabilities":{
+                "snat":true,
+                "portMappings":true
+             }
+          }
+       ]
+    }
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  labels:
+    k8s-app: tailscale-cni
+    tier: node
+  name: tailscale-cni
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      k8s-app: tailscale-cni
+      tier: node
+  template:
+    metadata:
+      labels:
+        k8s-app: tailscale-cni
+        tier: node
+    spec:
+      priorityClassName: system-node-critical
+      serviceAccountName: tailscale-cni
+      imagePullSecrets:
+        - name: image-registry
+      initContainers:
+        - name: install-cni
+          image: tailscale-cni:latest
+          command:
+            - /bin/sh
+            - -c
+            - set -e -x;
+              if [ ! -f /etc/cni/net.d/10-tailscale.conflist ]; then
+              if [ -f /etc/cni/net.d/*.conf ]; then
+              rm -f /etc/cni/net.d/*.conf;
+              fi;
+              TMP=/etc/cni/net.d/.tmp-tailscale-cfg;
+              cp /etc/tailscale-cni/cni-conf.json ${TMP};
+              mv ${TMP} /etc/cni/net.d/10-tailscale.conflist;
+              fi
+          volumeMounts:
+            - name: cni-conf-dir
+              mountPath: /etc/cni/net.d
+            - name: tailscale-cni-cfg
+              mountPath: /etc/tailscale-cni
+      containers:
+        - name: tailscale-cni
+          image: tailscale-cni:latest
+          args:
+            - --kubeconfig=/var/lib/tailscale-cni/kubeconfig
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 10
+            periodSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 10
+            periodSeconds: 3
+          resources:
+            requests:
+              cpu: 250m
+              memory: 250Mi
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: lib-modules
+              mountPath: /lib/modules
+              readOnly: true
+            - name: cni-conf-dir
+              mountPath: /etc/cni/net.d
+            - name: kubeconfig
+              mountPath: /var/lib/tailscale-cni
+              readOnly: true
+            - name: tailscale-socket
+              mountPath: /var/run/tailscale/tailscaled.sock
+              readOnly: true
+            - name: xtables-lock
+              mountPath: /run/xtables.lock
+              readOnly: false
+      hostNetwork: true
+      tolerations:
+        - effect: NoSchedule
+          operator: Exists
+        - key: CriticalAddonsOnly
+          operator: Exists
+        - effect: NoExecute
+          operator: Exists
+      volumes:
+        - name: cni-conf-dir
+          hostPath:
+            path: /etc/cni/net.d
+        - name: tailscale-cni-cfg
+          configMap:
+            name: tailscale-cni-cfg
+        - name: lib-modules
+          hostPath:
+            path: /lib/modules
+        - name: kubeconfig
+          configMap:
+            name: kube-proxy
+            items:
+              - key: kubeconfig.conf
+                path: kubeconfig
+        - name: tailscale-socket
+          hostPath:
+            path: /var/run/tailscale/tailscaled.sock
+            type: Socket
+        - name: xtables-lock
+          hostPath:
+            path: /run/xtables.lock
+            type: FileOrCreate

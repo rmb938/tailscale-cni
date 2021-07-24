@@ -1,0 +1,5 @@
+resources:
+  - service-account.yaml
+  - cluster-role.yaml
+  - cluster-role-binding.yaml
+  - daemonset.yaml
