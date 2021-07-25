@@ -331,7 +331,7 @@ func doIptables(c client.Client, ctx context.Context) {
 	}
 
 	comment = "pod egress"
-	args = []string{"-m", "comment", "--comment", comment, "-s", node.Spec.PodCIDR, "-o", "kube-bridge", "-j", "MASQUERADE"}
+	args = []string{"-m", "comment", "--comment", comment, "-s", node.Spec.PodCIDR, "!", "-o", "kube-bridge", "-j", "MASQUERADE"}
 	err = iptablesCmd.AppendUnique("nat", "POSTROUTING", args...)
 	if err != nil {
 		setupLog.Error(err, "error inserting iptables rule", "comment", comment)

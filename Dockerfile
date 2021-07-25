@@ -1,6 +1,8 @@
-ARG ARCH="amd64"
-ARG OS="linux"
-FROM quay.io/prometheus/busybox-${OS}-${ARCH}:latest
+FROM alpine:3.14
+
+RUN apk add --no-cache \
+    iptables \
+    iproute2
 
 ARG ARCH="amd64"
 ARG OS="linux"
